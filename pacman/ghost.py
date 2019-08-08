@@ -13,6 +13,12 @@ class Ghost(Agent):
         self.respawn_time = 30
         self.respawn_timer = 0
 
+    def __eq__(self, other):
+        if not isinstance(other, Ghost):
+            return False
+
+        return self.x == other.x and self.y == other.y and self.respawn_timer == other.respawn_timer
+
     def update(self):
         """
         Update the location of the ghost according to its strategy
@@ -29,4 +35,4 @@ class Ghost(Agent):
         """
         self.dead = False
         self.x, self.y = self.initial_x, self.initial_y
-        self.game_map[self.y][self.x].add_element(self)
+        self.game_map[self.y][self.x].add_object(self)

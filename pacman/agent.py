@@ -20,6 +20,7 @@ class Agent:
         Update the location of the agent according to its strategy
         """
         if not self.is_dead():
+            self.update_available_action()
             self.get_move_direction()
             self.update_location()
             self.update_grid()
@@ -31,8 +32,8 @@ class Agent:
         """
         if not self.is_direction_blocked(self.move_direction):
             next_x, next_y = self.x + self.move_direction[0], self.y + self.move_direction[1]
-            self.game_map[next_y][next_x].add_element(self)
-            self.game_map[self.y][self.x].remove_element(self)
+            self.game_map[next_y][next_x].add_object(self)
+            self.game_map[self.y][self.x].remove_object(self)
             self.x, self.y = next_x, next_y
 
     def update_grid(self):
@@ -47,22 +48,35 @@ class Agent:
 
     def is_direction_blocked(self, direction):
         next_x, next_y = self.x + direction[0], self.y + direction[1]
-        return self.game_map[next_y][next_x].has_wall()
+        return self.game_map[next_y][next_x].has_wall
 
     def is_dead(self):
         return self.dead
 
     def destory(self):
         self.dead = True
-        self.game_map[self.y][self.x].remove_element(self)
+        self.game_map[self.y][self.x].remove_object(self)
+
+    def update_available_action(self):
+        self.available_direction = [direction for direction in [(0, -1), (0, 1), (-1, 0), (1, 0)] if
+                                    not self.is_direction_blocked(direction)]
+
+    def set_action(self, action):
+        self.chosen_action = action
+
+    def get_available_action(self):
+        self.update_available_action()
+        return self.available_direction
 
     # -------------------- agent strategy --------------------
 
     def get_move_direction(self):
-        if self.player_number != 0:
-            self.get_human_move()
-        else:
+        if self.player_number == 0:
             self.get_random_strategy_move()
+        elif self.player_number in [1, 2]:
+            self.get_human_move()
+        elif self.player_number == 3:
+            self.get_learning_agent_move()
 
     def get_human_move(self):
         from pacman.render import get_key_commands, clear_key_commands
@@ -72,17 +86,17 @@ class Agent:
 
         for key_command in get_key_commands(self.player_number):
             direction = direction_dict[key_command]
-            if not self.is_direction_blocked(direction):
+            if direction in self.available_direction:
                 self.move_direction = direction
                 clear_key_commands(self.player_number)
 
     def get_random_strategy_move(self):
         import random
 
-        possible_direction = [direction for direction in [(0, -1), (0, 1), (-1, 0), (1, 0)] if
-                              not self.is_direction_blocked(direction)]
-
         last_direction = - self.move_direction[0], - self.move_direction[1]
-        chosen_direction = [direction for direction in possible_direction if direction != last_direction]
-        chosen_direction = chosen_direction if len(chosen_direction) > 0 else possible_direction
+        chosen_direction = [direction for direction in self.available_direction if direction != last_direction]
+        chosen_direction = chosen_direction if len(chosen_direction) > 0 else self.available_direction
         self.move_direction = random.choice(chosen_direction)
+
+    def get_learning_agent_move(self):
+        self.move_direction = self.chosen_action

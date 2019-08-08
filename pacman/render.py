@@ -67,7 +67,7 @@ class Render:
         return: food dict, key: food location, value: a image of the food
         """
         food = {}
-        for y, row in enumerate(self.game_state.static_object_lst):
+        for y, row in enumerate(self.game_state.static_object_list):
             for x, col_elem in enumerate(row):
                 x, y = x + self.starting_x, y + self.starting_y
                 if col_elem == '#':

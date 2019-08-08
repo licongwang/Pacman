@@ -13,6 +13,12 @@ class Pacman(Agent):
         self.powerup_time = 40
         self.invulnerable_timer = 0
 
+    def __eq__(self, other):
+        if not isinstance(other, Pacman):
+            return False
+
+        return self.x == other.x and self.y == other.y and self.invulnerable_timer == other.invulnerable_timer
+
     def update(self):
         """
         Update the location of the pacman according to its strategy

@@ -1,10 +1,20 @@
 from pacman.pac_man import Pacman
 from pacman.ghost import Ghost
+from pacman.game_state_repr import SimpleGameStateRepr
 import math
 
 
 class GameState:
+    """
+    A gameState specifies game state information, such as locations of the pacman, ghosts, and foods.
+
+    The GameState is used by the GameEnv object to access state related info.
+    """
+
     def __init__(self, width, height, map_string, pacman_player, ghost_player):
+        self.width = width
+        self.height = height
+        self.map_string = map_string
         self.pacman_player = pacman_player
         self.ghost_player = ghost_player
         self.pacmans = []
@@ -17,52 +27,59 @@ class GameState:
         self.score_count = 0
 
     def load_map(self, width, height, map_string):
-        self.map_lst = [[None for _ in range(width)] for _ in range(height)]
-        self.static_object_lst = [[None for _ in range(width)] for _ in range(height)]
+        self.map_list = [[None for _ in range(width)] for _ in range(height)]
+        self.map_repr_list = [[None for _ in range(width)] for _ in range(height)]
+        self.static_object_list = [[None for _ in range(width)] for _ in range(height)]
         dots_counter = 0
 
         for k, str in enumerate(map_string):
             x, y = k % width, k // width
             if str == 'P':
-                element = Pacman(self.map_lst, (x, y), player_number=self.pacman_player)
+                element = Pacman(self.map_list, (x, y), player_number=self.pacman_player)
                 self.pacmans.append(element)
             elif str == 'M':
-                element = Ghost(self.map_lst, (x, y), player_number=self.ghost_player)
+                element = Ghost(self.map_list, (x, y), player_number=self.ghost_player)
                 self.ghosts.append(element)
                 self.ghost_player = 0
             else:
                 if str == '*':
                     dots_counter += 1
                 element = str
-                self.static_object_lst[y][x] = str
+                self.static_object_list[y][x] = str
 
-            self.map_lst[y][x] = GameGrid(self, (x, y), element)
+            grid = GameGrid(self, (x, y), element)
+            self.map_list[y][x] = grid
+            self.map_repr_list[y][x] = grid.get_grid_repr()
+
         self.original_dots_counter = self.cur_dots_counter = dots_counter
+        self.state_repr = (col.elements for row in self.map_list for col in row)
 
     def update(self):
+        self.last_score = self.get_score()
+
         for pacman in self.pacmans:
             pacman.update()
 
         self.update_game_status()
-        if self.is_game_over():
-            return
 
-        for ghost in self.ghosts:
-            ghost.update()
+        if not self.is_game_over():
+            for ghost in self.ghosts:
+                ghost.update()
 
         self.update_game_status()
         self.time_count += 1
-        self.score_count = - self.time_count + (self.original_dots_counter - self.cur_dots_counter) * 10 + \
-                           self.ghost_killed_counter * 200
+        self.score_count = (- self.time_count + (self.original_dots_counter - self.cur_dots_counter) * 10 + \
+                            self.ghost_killed_counter * 200) * (self.game_status != 'lose')
 
     def update_game_status(self):
         if all([pacman.is_dead() for pacman in self.pacmans]):
             self.game_status = 'lose'
+
         elif self.cur_dots_counter == 0:
             self.game_status = 'win'
 
     def display(self):
-        for row in self.map_lst:
+        for row in self.map_list:
             row_line = ''
             for col in row:
                 row_line += col.__repr__()
@@ -83,11 +100,27 @@ class GameState:
     def get_score(self):
         return self.score_count
 
+    def get_action_reward(self):
+        return self.get_score() - self.last_score
+
     def get_pacman_invulnerable_time(self):
         invulnerable_time = 0
         for pacman in self.pacmans:
             invulnerable_time = max(pacman.get_invulnerable_time(), invulnerable_time)
         return invulnerable_time
+
+    def get_state(self):
+        game_state_repr = SimpleGameStateRepr(self)
+        return game_state_repr
+
+    def get_pacman_available_action(self, pacman_num=0):
+        return self.pacmans[pacman_num].get_available_action()
+
+    def get_ghost_available_action(self, ghost_num=0):
+        return self.ghosts[ghost_num].get_available_action()
+
+    def set_pacman_action(self, action, pacman_num=0):
+        self.pacmans[pacman_num].set_action(action)
 
     def is_game_over(self):
         return self.get_game_status() != 'ongoing'
@@ -100,63 +133,96 @@ class GameState:
 
 
 class GameGrid:
-    def __init__(self, game_state, location_index, element):
+    """
+    A GameGrid specifies the state of a single grid, including whether food/pacman/ghost exist in the grid.
+
+    It also handles the update of the game logic inside the grid at each time step.
+
+    The GameState class contains multiple GameGrid objects, as each corresponds to a single grid in the game map.
+    """
+
+    def __init__(self, game_state, location_index, obj):
         self.game_state = game_state
         self.x, self.y = location_index
-        self.elements = [element]
+        self.has_wall = self.has_food = self.has_powerup = self.has_pacman = self.has_ghost = False
+        self.pacmans, self.ghosts = [], []
+        self.add_object(obj)
 
-    def __repr__(self):
-        element_str = ''.join([e.__repr__() for e in self.elements])
-        element_str = element_str.replace('\'', '')
+    def add_object(self, obj):
+        """
+        Add an object from the current grid
+        """
+        if obj == '#':
+            self.has_wall = True
+        elif obj == '*':
+            self.has_food = True
+        elif obj == '@':
+            self.has_powerup = True
+        elif isinstance(obj, Pacman):
+            self.has_pacman = True
+            self.pacmans.append(obj)
+        elif isinstance(obj, Ghost):
+            self.has_ghost = True
+            self.ghosts.append(obj)
+        elif obj != ' ':
+            raise ValueError('Undefined map object: %s' % obj)
 
-        if len(self.elements) < 5:
-            left_white_space, right_white_space = ' ' * (5 - math.floor(len(self.elements) / 2)), \
-                                                  ' ' * (5 - math.ceil(len(self.elements) / 2))
-            output = left_white_space + element_str + right_white_space
-        else:
-            output = element_str
-        return output
+        self.update_repr()
 
-    def add_element(self, element):
-        self.elements.append(element)
+    def remove_object(self, obj):
+        """
+        Remove an object from the current grid
+        """
+        if obj == '#':
+            self.has_wall = False
+        elif obj == '*':
+            self.has_food = False
+        elif obj == '@':
+            self.has_powerup = False
+        elif isinstance(obj, Pacman):
+            self.has_pacman = False
+            self.pacmans.remove(obj)
+        elif isinstance(obj, Ghost):
+            self.has_ghost = False
+            self.ghosts.remove(obj)
+        elif obj != ' ':
+            raise ValueError('Undefined map object: %s' % obj)
 
-    def remove_element(self, element):
-        if element in self.elements:
-            self.elements.remove(element)
+        self.update_repr()
 
     def update(self):
-        if self.has_ghost() and self.has_pacman():
-            pacmans = [e for e in self.elements if isinstance(e, Pacman)]
-            if any([pacman.is_invulnerable() for pacman in pacmans]):
-                ghosts = [e for e in self.elements if isinstance(e, Ghost)]
-                for ghost in ghosts:
+        if self.has_ghost and self.has_pacman:
+            if any([pacman.is_invulnerable() for pacman in self.pacmans]):
+                for ghost in self.ghosts:
                     ghost.destory()
                     self.game_state.ghost_killed_counter += 1
             else:
-                for pacman in pacmans:
+                for pacman in self.pacmans:
                     pacman.destory()
+                    self.game_state.score = 0
 
-        if self.has_pacman() and self.has_food():
-            self.elements.remove('*')
+        if self.has_pacman and self.has_food:
+            self.has_food = False
             self.game_state.cur_dots_counter -= 1
 
-        if self.has_pacman() and self.has_powerup():
-            self.elements.remove('@')
-            pacmans = [e for e in self.elements if isinstance(e, Pacman)]
-            for pacman in pacmans:
+        if self.has_pacman and self.has_powerup:
+            self.has_powerup = False
+            for pacman in self.pacmans:
                 pacman.powerup()
 
-    def has_pacman(self):
-        return any([isinstance(e, Pacman) for e in self.elements])
+        self.update_repr()
 
-    def has_ghost(self):
-        return any([isinstance(e, Ghost) for e in self.elements])
+    def update_repr(self):
+        self.game_state.map_repr_list[self.y][self.x] = self.get_grid_repr()
 
-    def has_food(self):
-        return any([e == '*' for e in self.elements])
+    def get_grid_repr(self):
+        return self.has_wall * 1 + self.has_food * 2 + self.has_powerup * 4 + self.has_pacman * 8 + self.has_ghost * 16
 
-    def has_powerup(self):
-        return any([e == '@' for e in self.elements])
+    def get_closest_ghost_distance(self):
+        pass
 
-    def has_wall(self):
-        return any([e == '#' for e in self.elements])
+    def get_closest_food_distance(self):
+        pass
+
+    def get_closest_powerup_distance(self):
+        pass
